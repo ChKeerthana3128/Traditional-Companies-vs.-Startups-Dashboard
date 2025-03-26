@@ -3,63 +3,97 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Streamlit page configuration
 st.set_page_config(page_title="Traditional Companies vs. Startups Dashboard", layout="wide")
 
+# Title and Introduction
 st.title("Traditional Companies vs. Startups - Competitive Strategy Tracker")
-st.markdown("Monitor strategies for traditional businesses to compete with startups in India and beyond.")
+st.markdown("Monitor strategies for traditional businesses to compete with startups in India, based on Indian Startup Funding data.")
 
-digital_data = pd.DataFrame({
-    "Metric": ["App Cost (Rs Lakh)", "Sales Growth (%)", "Customer Reach"],
-    "Value": [4, 12, 5000]
-})
+# Load and Process Dataset
+@st.cache_data
+def load_and_process_data():
+    df = pd.read_csv("startup_funding.csv")
+    
+    # Clean and convert AmountInUSD to Rs Lakh
+    df["AmountInUSD"] = df["AmountInUSD"].str.replace(",", "").fillna(0).astype(float)
+    df["AmountInRsLakh"] = df["AmountInUSD"] / 100000 * 83  # 1 USD = 83 Rs, 1M USD = 830 Lakh
+    
+    # Fix date column and extract month-year
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce", dayfirst=True)
+    df["MonthYear"] = df["Date"].dt.strftime("%b %Y")
+    
+    # 1. Go Digital
+    tech_df = df[df["IndustryVertical"].str.contains("Tech|E-commerce", case=False, na=False)]
+    digital_data = pd.DataFrame({
+        "Metric": ["App Cost (Rs Lakh)", "Sales Growth (%)", "Customer Reach"],
+        "Value": [tech_df["AmountInRsLakh"].mean(), 12, len(tech_df)]  # 12% growth assumed
+    })
 
-cost_data = pd.DataFrame({
-    "Category": ["Rent", "Staff", "Inventory", "Pop-Up Sales"],
-    "Cost Savings (%)": [20, 15, 10, 0],
-    "Revenue (Rs Lakh)": [0, 0, 0, 3]
-})
+    # 2. Cut Costs (assumed savings, e-commerce revenue)
+    ecomm_df = df[df["IndustryVertical"].str.contains("E-commerce", case=False, na=False)]
+    cost_data = pd.DataFrame({
+        "Category": ["Rent", "Staff", "Inventory", "Pop-Up Sales"],
+        "Cost Savings (%)": [20, 15, 10, 0],  # Assumed from PPT
+        "Revenue (Rs Lakh)": [0, 0, 0, ecomm_df["AmountInRsLakh"].mean()]
+    })
 
-unique_value_data = pd.DataFrame({
-    "Month": ["Jan", "Feb", "Mar", "Apr"],
-    "Retention Rate (%)": [70, 72, 75, 78],
-    "Satisfaction Score": [4.2, 4.3, 4.5, 4.6]
-})
+    # 3. Unique Value (trends over 4 months)
+    monthly_df = df.groupby("MonthYear").agg({"AmountInRsLakh": "sum"}).reset_index().head(4)
+    unique_value_data = pd.DataFrame({
+        "Month": monthly_df["MonthYear"],
+        "Retention Rate (%)": [70, 72, 75, 78],  # Simulated growth
+        "Satisfaction Score": [4.2, 4.3, 4.5, 4.6]  # Simulated
+    })
 
-collab_data = pd.DataFrame({
-    "Partner": ["Startup A", "Startup B"],
-    "Revenue Share (Rs Lakh)": [5, 3],
-    "Cost Savings (Rs Lakh)": [1, 0.5]
-})
+    # 4. Collaborate (top 2 investors)
+    collab_df = df.groupby("InvestorsName").agg({"AmountInRsLakh": "sum"}).nlargest(2, "AmountInRsLakh").reset_index()
+    collab_data = pd.DataFrame({
+        "Partner": collab_df["InvestorsName"],
+        "Revenue Share (Rs Lakh)": collab_df["AmountInRsLakh"],
+        "Cost Savings (Rs Lakh)": collab_df["AmountInRsLakh"] * 0.1  # 10% savings assumed
+    })
 
-pilot_data = pd.DataFrame({
-    "City": ["Delhi", "Bangalore"],
-    "Sales Growth (%)": [15, 10],
-    "Pilot Cost (Rs Lakh)": [2, 1.5]
-})
+    # 5. Start Small (Delhi and Bangalore)
+    pilot_df = df[df["CityLocation"].isin(["Delhi", "Bangalore"])].groupby("CityLocation").agg({"AmountInRsLakh": "mean"}).reset_index()
+    pilot_data = pd.DataFrame({
+        "City": pilot_df["CityLocation"],
+        "Sales Growth (%)": [15, 10],  # Assumed from PPT
+        "Pilot Cost (Rs Lakh)": pilot_df["AmountInRsLakh"]
+    })
 
+    return digital_data, cost_data, unique_value_data, collab_data, pilot_data
+
+digital_data, cost_data, unique_value_data, collab_data, pilot_data = load_and_process_data()
+
+# Sidebar Filters (placeholders)
 st.sidebar.header("Filters")
 time_period = st.sidebar.selectbox("Time Period", ["Monthly", "Quarterly"])
 city = st.sidebar.selectbox("City", ["All", "Delhi", "Bangalore"])
 industry = st.sidebar.selectbox("Industry", ["All", "Taxis", "Retail", "Hotels"])
 
+# Dashboard Layout
 col1, col2 = st.columns(2)
 
+# Go Digital
 with col1:
     st.subheader("1. Go Digital")
     st.write("Track adoption and impact of digital tools.")
     fig_digital = px.bar(digital_data[digital_data["Metric"] != "Customer Reach"], 
                          x="Metric", y="Value", title="Cost vs. Sales Growth")
     st.plotly_chart(fig_digital, use_container_width=True)
-    st.write(f"Customer Reach: {digital_data.loc[2, 'Value']} users")
+    st.write(f"Customer Reach: {int(digital_data.loc[2, 'Value'])} startups")
 
+# Cut Costs
 with col2:
     st.subheader("2. Cut Costs")
     st.write("Monitor cost-saving measures.")
     fig_cost = px.pie(cost_data[cost_data["Cost Savings (%)"] > 0], 
                       values="Cost Savings (%)", names="Category", title="Cost Savings Breakdown")
     st.plotly_chart(fig_cost, use_container_width=True)
-    st.write(f"Pop-Up Sales Revenue: Rs {cost_data.loc[3, 'Revenue (Rs Lakh)']} Lakh")
+    st.write(f"Pop-Up Sales Revenue: Rs {cost_data.loc[3, 'Revenue (Rs Lakh)']:.2f} Lakh")
 
+# Unique Value
 with col1:
     st.subheader("3. Unique Value")
     st.write("Measure personalized service impact.")
@@ -74,6 +108,7 @@ with col1:
     ))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
+# Collaborate
 with col2:
     st.subheader("4. Collaborate")
     st.write("Track partnerships with startups.")
@@ -82,6 +117,7 @@ with col2:
     st.plotly_chart(fig_collab, use_container_width=True)
     st.dataframe(collab_data)
 
+# Start Small
 st.subheader("5. Start Small")
 st.write("Evaluate pilot projects in one city.")
 col3, col4 = st.columns(2)
@@ -91,11 +127,12 @@ with col3:
     st.plotly_chart(fig_pilot, use_container_width=True)
 
 with col4:
-    readiness_score = 75
+    readiness_score = 75  # Static for now
     st.write("Expansion Readiness Score")
     st.progress(readiness_score / 100)
     st.write(f"{readiness_score}% Ready")
 
+# Key Takeaways
 st.subheader("Key Takeaways")
 st.markdown("""
 - **Digital is Key**: Embrace digital tools.
@@ -104,5 +141,6 @@ st.markdown("""
 - **Compete Smart**: Grow without huge funds.
 """)
 
+# Footer
 st.markdown("---")
-st.write("Built with Streamlit by [Your Team Name] | Data as of March 25, 2025")
+st.write("Built with Streamlit by [Your Team Name] | Data as of March 25, 2025 | Source: Indian Startup Funding (Kaggle)")
